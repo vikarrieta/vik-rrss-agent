@@ -1,0 +1,160 @@
+name: Agente de contenido @vikarrieta
+
+on:
+  schedule:
+    # Lunes, miércoles y viernes a las 9:00 AM Argentina (UTC-3 = 12:00 UTC)
+    - cron: '0 12 * * 1,3,5'
+  workflow_dispatch: # permite correrlo manualmente desde GitHub
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Correr agente de contenido
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          CANVA_TOKEN: ${{ secrets.CANVA_TOKEN }}
+        run: |
+          node << 'EOF'
+          const https = require('https');
+
+          const SLACK_CHANNEL = '#contenido-rrss-vik';
+          const AIRTABLE_BASE = 'appRWskRNQ1sUT4cy';
+          const TABLE_JOURNAL = 'tblVOlms0rbEDBGOy';
+          const TABLE_CATS = 'tbl88RWvIapiwLGBQ';
+
+          const today = new Date().toLocaleDateString('es-AR', {
+            weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Argentina/Buenos_Aires'
+          });
+
+          const agentPrompt = `Sos el agente de contenido de @vikarrieta. Hoy es ${today}.
+
+TAREA: Ejecutá estos 6 pasos en orden usando los MCP tools disponibles.
+
+--- PASO 1: Leer Journal ---
+Leé todos los registros de la tabla ${TABLE_JOURNAL} en la base Airtable ${AIRTABLE_BASE}.
+Filtrá los que tienen Estado (flddgvfDKoy0hAzi4) = "ideas_crudas".
+
+--- PASO 2: Verificar si hay contenido ---
+Si NO hay registros con estado "ideas_crudas":
+  - Usá el Slack MCP para enviar este mensaje al canal ${SLACK_CHANNEL}:
+    "⚠️ Sin anécdotas disponibles — Hoy es día de posteo (${today}) pero no hay entradas en el Journal con estado ideas_crudas. ¿Podés agregar algo antes del mediodía? Podés abrirme en Claude.ai y contarme algo que te haya pasado esta semana 👉 https://claude.ai"
+  - Terminá la ejecución.
+
+--- PASO 3: Leer Tablero de Categorías ---
+Leé todos los registros de la tabla ${TABLE_CATS} en la base ${AIRTABLE_BASE}.
+Fijate qué categoría tiene estado "hambre" o "hace_tiempo" para priorizarla.
+
+--- PASO 4: Seleccionar anécdota y generar copy ---
+VOZ DE VIK: español rioplatense, voseo, poético pero asertivo. Anécdota real → reflexión → pregunta genuina. Referente: Leticia Fenoglio. NO autoayuda genérica, NO hashtags en copy, NO inventar detalles que no estén en la anécdota.
+
+CATEGORÍAS:
+- Criterio Propio: historia personal → insight → cierre empático. Formato B. 1/semana.
+- Detrás de Escena: cocina real de Monoblock/Happimess con humor cómplice. 1/semana.
+- Lifestyle Creativo: lo que lee, ve, obsesiona. Gusto formado. Carrusel o quote. 1 cada 2 semanas.
+- Fan de lo que hacemos: Vik como primera fan de sus productos. Sin tono comercial. Máx 1 cada 2 semanas.
+
+FORMATOS:
+- A (Quote): una frase poética y asertiva
+- B (Reflexión): escena concreta → reflexión → cierre. 150-300 palabras.
+- C (Carrusel): 5-8 slides, cover que engancha, una idea por slide
+- D (Historia con punto): minirelato, observación final (no moraleja)
+
+Elegí la categoría con más necesidad según el tablero, luego la anécdota más fuerte disponible. Generá el copy completo.
+
+--- PASO 5: Crear diseño en Canva ---
+Según el formato del copy generado:
+- Formato A o D: post cuadrado, tipografía limpia, fondo simple
+- Formato B: post con espacio para foto personal
+- Formato C: carrusel multi-slide
+
+Usá el Canva MCP para generar el diseño y obtené el link.
+
+--- PASO 6: Enviar a Slack ---
+Enviá este mensaje al canal ${SLACK_CHANNEL} usando el Slack MCP:
+
+📅 Posteo para hoy — ${today} [hora sugerida]
+📍 Categoría: [nombre + emoji]
+📋 Formato: [nombre]
+
+COPY:
+[texto completo]
+
+💬 [pregunta de cierre si aplica]
+
+🎨 Canva: [link]
+
+🖼️ Imagen sugerida: [descripción o nombre de archivo]
+
+[Si hubo nota sobre falta de anécdota en categoría prioritaria, agregarla aquí con ⚠️]
+
+--- PASO 7: Actualizar Airtable ---
+Actualizá el registro del Journal usado:
+- Campo Estado (flddgvfDKoy0hAzi4) → "listo_para_postear"
+- Campo Link Canva (fldoFafpBmVkGapjw) → link del diseño generado`;
+
+          const body = JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: agentPrompt }],
+            mcp_servers: [
+              {
+                type: 'url',
+                url: 'https://mcp.airtable.com/mcp',
+                name: 'airtable',
+                authorization_token: process.env.AIRTABLE_TOKEN
+              },
+              {
+                type: 'url',
+                url: 'https://mcp.canva.com/mcp',
+                name: 'canva',
+                authorization_token: process.env.CANVA_TOKEN
+              },
+              {
+                type: 'url',
+                url: 'https://mcp.slack.com/mcp',
+                name: 'slack',
+                authorization_token: process.env.SLACK_TOKEN
+              }
+            ]
+          });
+
+          const options = {
+            hostname: 'api.anthropic.com',
+            path: '/v1/messages',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': process.env.ANTHROPIC_API_KEY,
+              'anthropic-version': '2023-06-01',
+              'anthropic-beta': 'mcp-client-2025-04-04'
+            }
+          };
+
+          const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              const parsed = JSON.parse(data);
+              if (parsed.error) {
+                console.error('Error de API:', parsed.error.message);
+                process.exit(1);
+              }
+              const text = (parsed.content || [])
+                .filter(b => b.type === 'text')
+                .map(b => b.text)
+                .join('\n');
+              console.log('Agente completado:\n', text);
+            });
+          });
+
+          req.on('error', (e) => {
+            console.error('Error de red:', e.message);
+            process.exit(1);
+          });
+
+          req.write(body);
+          req.end();
+          EOF
