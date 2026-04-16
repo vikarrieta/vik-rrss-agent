@@ -161,13 +161,18 @@ function parseJSON(text) {
 
 // ── Airtable REST directo (sin MCP) ────────────────────────────────────────
 async function fetchAirtableTable(tableId) {
+  const token = (process.env.AIRTABLE_TOKEN || '').trim();
+  if (!token) throw new Error('AIRTABLE_TOKEN no configurado');
+  // Loggea primeros 6 chars para diagnosticar formato sin exponer el token completo
+  console.log(`   Token: ${token.slice(0, 6)}... (${token.length} chars) — debe empezar con "pat"`);
+
   return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'api.airtable.com',
       path: `/v0/${AIRTABLE_BASE}/${tableId}?pageSize=100`,
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${process.env.AIRTABLE_TOKEN}`
+        'Authorization': `Bearer ${token}`
       }
     }, (res) => {
       let data = '';
@@ -445,65 +450,84 @@ ${Object.entries(porCategoria).map(([cat, items]) => card(`
     }
   }
 
-  // ── PASO 3: Artículo Substack ─────────────────────────────────────────────
-  // Con anécdotas de la semana como contexto + subtítulos H2 + fuentes reales
-  console.log('📝 Generando artículo Substack...');
+  // ── PASO 3: Substack + Preguntas disparadoras (llamada única) ────────────
+  // Combinadas para no superar el rate limit de 10k tokens/min
+  console.log('📝 Generando Substack + preguntas (llamada combinada)...');
+
+  // Pausa de 10s después del paso anterior para resetear la ventana de rate limit
+  await new Promise(r => setTimeout(r, 10000));
 
   const anecdotasResumen = journalRecords.length > 0
     ? journalRecords.slice(0, 5).map(r => {
         const f = r.fields;
-        // Buscar el título (primer campo de texto string o campo llamado Name/Nombre/Título)
         const titulo = f['Name'] || f['Nombre'] || f['Título'] || f['Titulo']
           || Object.values(f).find(v => typeof v === 'string' && v.length > 3)
           || r.id;
-        // Buscar el texto/contenido
         const texto = f['Anécdota'] || f['Anecdota'] || f['Texto'] || f['Contenido'] || f['Notes'] || f['Nota'] || '';
         return `- "${titulo}"${texto ? ': ' + String(texto).slice(0, 200) : ''}`;
       }).join('\n')
     : 'Sin anécdotas en el journal esta semana.';
 
-  const substackPrompt = `Sos redactora editorial de Happimess. Hoy es ${today}.
+  const combinadoPrompt = `Sos redactora editorial de Happimess y agente de contenido de @vikarrieta. Hoy es ${today}.
 
-HAPPIMESS es una marca de lifestyle creada por Vik Arrieta (Buenos Aires). Vende calendarios y agendas con diseño. Voz: editorial, cálida, con criterio. NO es la voz personal de Vik — es la voz de la marca.
+CONTEXTO:
+- HAPPIMESS: marca de lifestyle de Vik Arrieta (Buenos Aires). Vende calendarios y agendas con diseño. Voz editorial, cálida, con criterio. NO es la voz personal de Vik.
+- VIK: Founder-CEO de Monoblock (diseño editorial) y creadora de Happimess. Su Instagram documenta su vida creativa con criterio y sin filtro.
 
-ANÉCDOTAS DE LA SEMANA EN EL JOURNAL DE VIK (usá una como disparador del artículo):
+ANÉCDOTAS DE LA SEMANA EN EL JOURNAL:
 ${anecdotasResumen}
 
-TAREA: Generá un artículo para el Substack de Happimess que:
-1. Tome como DISPARADOR una de las anécdotas de la semana (indicá cuál usaste)
-2. Desarrolle un tema del universo Happimess (diseño, creatividad, tiempo, organización con propósito)
-3. Incluya FUENTES REALES: libros, estudios, personas o publicaciones con nombre, autor y contexto
-4. Use subtítulos H2 para separar las partes (mínimo 2 secciones)
-5. Extensión: 500-700 palabras
+TAREA 1 — Artículo Substack de Happimess:
+- Tomá como DISPARADOR una de las anécdotas del journal (indicá cuál)
+- Desarrollá un tema del universo Happimess (diseño, creatividad, tiempo, organización con propósito)
+- Incluí FUENTES REALES con nombre, autor y contexto
+- Usá subtítulos H2 (mínimo 2 secciones)
+- Extensión: 500-700 palabras
+
+TAREA 2 — 3 preguntas disparadoras para el Diario de Vik:
+- Específicas, no genéricas — apuntan a momentos concretos
+- Mezclan vida profesional, proceso creativo y criterio personal
+- Invitan a encontrar la anécdota, no a reflexionar en abstracto
 
 Respondé SOLO con JSON válido, sin markdown:
 {
-  "titulo": "...",
-  "bajada": "dos o tres líneas de presentación",
-  "anecdota_disparadora": "título de la anécdota del journal que usaste",
-  "secciones": [
-    { "tipo": "p", "contenido": "párrafo introductorio" },
-    { "tipo": "h2", "texto": "Primer subtítulo", "contenido": "desarrollo de esa sección" },
-    { "tipo": "h2", "texto": "Segundo subtítulo", "contenido": "desarrollo" },
-    { "tipo": "h2", "texto": "Tercer subtítulo", "contenido": "desarrollo" }
-  ],
-  "cierre": "párrafo de cierre de la marca",
-  "fuentes": [
-    "Nombre Apellido, Título del libro o estudio (año) — por qué es relevante",
-    "Nombre de la publicación o investigación — qué aporta"
-  ],
-  "sugerencia_imagen_portada": "descripción de imagen ideal para la portada",
-  "tendencia_usada": "tendencia o fenómeno que usaste como gancho"
+  "substack": {
+    "titulo": "...",
+    "bajada": "dos o tres líneas de presentación",
+    "anecdota_disparadora": "título de la anécdota usada",
+    "secciones": [
+      { "tipo": "p", "contenido": "párrafo introductorio" },
+      { "tipo": "h2", "texto": "Primer subtítulo", "contenido": "desarrollo" },
+      { "tipo": "h2", "texto": "Segundo subtítulo", "contenido": "desarrollo" },
+      { "tipo": "h2", "texto": "Tercer subtítulo", "contenido": "desarrollo" }
+    ],
+    "cierre": "párrafo de cierre de la marca",
+    "fuentes": [
+      "Nombre Apellido, Título (año) — por qué es relevante"
+    ],
+    "sugerencia_imagen_portada": "descripción de imagen ideal",
+    "tendencia_usada": "tendencia o fenómeno usado como gancho"
+  },
+  "preguntas": [
+    {
+      "pregunta": "¿...?",
+      "contexto": "para qué sirve — qué contenido puede generar",
+      "categoria_potencial": "Criterio Propio | Detrás de Escena | Lifestyle Creativo | Fan de lo que hacemos"
+    }
+  ]
 }`;
 
   let substackHtml = '';
+  let preguntasHtml = '';
   try {
-    const substackResp = await callAnthropic(substackPrompt, {
+    const combinadoResp = await callAnthropic(combinadoPrompt, {
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
       extraBetas: ['web-search-2025-03-05']
     });
-    const substackData = parseJSON(extractText(substackResp));
+    const combinadoData = parseJSON(extractText(combinadoResp));
 
+    // — Substack —
+    const substackData = combinadoData?.substack;
     if (substackData) {
       const fuentesHtml = substackData.fuentes?.length
         ? `<div style="margin-top:20px;background:#f0f9ff;border-radius:8px;padding:14px">
@@ -528,47 +552,9 @@ Respondé SOLO con JSON válido, sin markdown:
     } else {
       substackHtml = `<p style="color:orange">⚠️ Substack generado pero JSON no parseable.</p>`;
     }
-  } catch (e) {
-    console.error('❌ Error Substack:', e.message);
-    substackHtml = `<p style="color:red">Error al generar artículo: ${e.message}</p>`;
-  }
 
-  // ── PASO 4: Preguntas disparadoras para la semana ─────────────────────────
-  console.log('❓ Generando preguntas disparadoras...');
-
-  let preguntasHtml = '';
-  try {
-    const preguntasPrompt = `Sos el agente de contenido de @vikarrieta. Hoy es ${today}.
-
-Vik es Founder-CEO de Monoblock (diseño editorial) y creadora de Happimess (calendarios y agendas). Su Instagram documenta su vida creativa con criterio y sin filtro.
-
-ANÉCDOTAS DE ESTA SEMANA EN EL JOURNAL:
-${anecdotasResumen}
-
-TAREA: Generá 3 preguntas concretas para que Vik trabaje en su Diario durante la semana que viene.
-Las respuestas se guardarán en Airtable y alimentarán tanto los posteos como el próximo artículo Substack.
-
-Las preguntas deben:
-- Ser específicas, no genéricas ("¿Qué decisión tomaste esta semana que al principio te costó?" > "¿Cómo te fue?")
-- Apuntar a momentos concretos: decisiones, conversaciones, tensiones, descubrimientos
-- Mezclar: vida profesional (Monoblock/Happimess), proceso creativo, criterio personal
-- Invitar a encontrar la anécdota, no a reflexionar en abstracto
-
-Respondé SOLO con JSON válido:
-{
-  "preguntas": [
-    {
-      "pregunta": "¿...?",
-      "contexto": "Para qué sirve — qué tipo de contenido puede generar",
-      "categoria_potencial": "Criterio Propio | Detrás de Escena | Lifestyle Creativo | Fan de lo que hacemos"
-    }
-  ]
-}`;
-
-    const preguntasResp = await callAnthropic(preguntasPrompt);
-    const preguntasData = parseJSON(extractText(preguntasResp));
-    const preguntas = preguntasData?.preguntas || [];
-
+    // — Preguntas —
+    const preguntas = combinadoData?.preguntas || [];
     if (preguntas.length > 0) {
       const emojiCat = {
         'Criterio Propio':       '🔴',
@@ -576,7 +562,6 @@ Respondé SOLO con JSON válido:
         'Lifestyle Creativo':    '🟢',
         'Fan de lo que hacemos': '🔵'
       };
-
       preguntasHtml = card(`
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
     <span style="font-size:22px">✍️</span>
@@ -593,7 +578,8 @@ Respondé SOLO con JSON válido:
   </div>`).join('')}`, ';background:#fafafa');
     }
   } catch (e) {
-    console.error('❌ Error preguntas:', e.message);
+    console.error('❌ Error Substack/preguntas:', e.message);
+    substackHtml = `<p style="color:red">Error al generar Substack/preguntas: ${e.message}</p>`;
   }
 
   // ── PASO 5: Actualizar estados en Airtable ────────────────────────────────
