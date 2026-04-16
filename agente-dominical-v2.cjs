@@ -1,23 +1,50 @@
+'use strict';
 const https = require('https');
 
-const AIRTABLE_BASE = 'appRWskRNQ1sUT4cy';
-const TABLE_JOURNAL = 'tblVOlms0rbEDBGOy';
-const TABLE_CATS = 'tbl88RWvIapiwLGBQ';
+// ── Constantes ─────────────────────────────────────────────────────────────
+const AIRTABLE_BASE   = 'appRWskRNQ1sUT4cy';
+const TABLE_JOURNAL   = 'tblVOlms0rbEDBGOy';
+const TABLE_CATS      = 'tbl88RWvIapiwLGBQ';
 const GMAIL_RECIPIENT = 'vik@monoblock.tv';
 
-const today = new Date().toLocaleDateString('es-AR', {
-  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  timeZone: 'America/Argentina/Buenos_Aires'
-});
+const DRIVE_FOLDERS = {
+  'Criterio Propio':      'https://drive.google.com/drive/folders/1sR0Kct_Is7u-y9ljCPq7uhJjDOrgX6KB',
+  'Detrás de Escena':     'https://drive.google.com/drive/folders/1xmi-Slocjpb4K9e8F08FTD0lWOKnbyGy',
+  'Lifestyle Creativo':   'https://drive.google.com/drive/folders/1brONZaRmTfEqrcgtEBY0i7snKxNUFT2-',
+  'Fan de lo que hacemos':'https://drive.google.com/drive/folders/1L_IeqeyOmNnAMhxKtQQ9hvtEg-SoskPF',
+  'Sin Contexto':         'https://drive.google.com/drive/folders/19G4B8C2urkrgsJ722iIWCoPpGA8l77xO'
+};
 
-// ── Obtener access_token de Gmail via OAuth2 refresh ─────────────────
+const VOZ = `
+VOZ DE VIK — REGLAS ABSOLUTAS:
+- Español rioplatense, voseo siempre
+- Tono: poético pero asertivo — metáforas concretas, no poesía vaga
+- Estructura: anécdota real → insight → pregunta genuina (referente: Leticia Fenoglio, CEO Franuí)
+- NUNCA inventar detalles que no estén en la anécdota — si falta algo, notarlo
+- NUNCA autoayuda genérica, anglicismos, ni hashtags dentro del copy
+- Emojis: máx 2-3, solo si agregan tono
+- Cierre: pregunta que nace del posteo, no un "¿qué te parece?" genérico
+
+CATEGORÍAS:
+- Criterio Propio 🔴: historia personal → insight → cierre empático. Formato B (150-300 palabras). 1/semana.
+- Detrás de Escena 🟡: cocina real de Monoblock/Happimess con humor cómplice. Foto real + caption jugoso. 1/semana.
+- Lifestyle Creativo 🟢: lo que lee, ve, obsesiona Vik. Siempre hay criterio. Carrusel o quote. 1 cada 2 semanas.
+- Fan de lo que hacemos 🔵: Vik como primera fan de sus productos. Sin tono comercial. Máx 1 cada 2 semanas.
+
+FORMATOS:
+- A — Quote: una frase. Poética, asertiva, con ritmo.
+- B — Reflexión con anécdota: escena concreta → reflexión → cierre que conecta. 150-300 palabras.
+- C — Carrusel: 5-8 slides. Cover que engancha sin clickbait. Una idea por slide.
+- D — Historia con punto: minirelato 2-3 párrafos. Observación final, no moraleja.`;
+
+// ── Gmail OAuth ─────────────────────────────────────────────────────────────
 async function getGmailAccessToken() {
   return new Promise((resolve, reject) => {
     const body = new URLSearchParams({
-      client_id: process.env.GMAIL_CLIENT_ID,
+      client_id:     process.env.GMAIL_CLIENT_ID,
       client_secret: process.env.GMAIL_CLIENT_SECRET,
       refresh_token: process.env.GMAIL_REFRESH_TOKEN,
-      grant_type: 'refresh_token'
+      grant_type:    'refresh_token'
     }).toString();
 
     const req = https.request({
@@ -34,7 +61,7 @@ async function getGmailAccessToken() {
       res.on('end', () => {
         const parsed = JSON.parse(data);
         if (parsed.access_token) resolve(parsed.access_token);
-        else reject(new Error('No se pudo obtener access_token: ' + JSON.stringify(parsed)));
+        else reject(new Error('No access_token: ' + JSON.stringify(parsed)));
       });
     });
     req.on('error', reject);
@@ -43,7 +70,6 @@ async function getGmailAccessToken() {
   });
 }
 
-// ── Enviar Gmail ──────────────────────────────────────────────────────
 async function sendGmail(accessToken, subject, htmlBody) {
   const message = [
     `To: ${GMAIL_RECIPIENT}`,
@@ -57,9 +83,7 @@ async function sendGmail(accessToken, subject, htmlBody) {
 
   const encodedMessage = Buffer.from(message)
     .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ raw: encodedMessage });
@@ -83,26 +107,30 @@ async function sendGmail(accessToken, subject, htmlBody) {
   });
 }
 
-// ── Llamar a la API de Anthropic ──────────────────────────────────────
-async function callAnthropic(prompt, mcpServers = []) {
-  return new Promise((resolve, reject) => {
-    const bodyObj = {
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
-      messages: [{ role: 'user', content: prompt }]
-    };
-    if (mcpServers.length > 0) bodyObj.mcp_servers = mcpServers;
+// ── Anthropic API ───────────────────────────────────────────────────────────
+async function callAnthropic(prompt, opts = {}) {
+  const { tools = [], extraBetas = [] } = opts;
 
-    const body = JSON.stringify(bodyObj);
+  const bodyObj = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8000,
+    messages: [{ role: 'user', content: prompt }]
+  };
+  if (tools.length > 0) bodyObj.tools = tools;
+
+  const betas = ['mcp-client-2025-04-04', ...extraBetas];
+  const body = JSON.stringify(bodyObj);
+
+  return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'api.anthropic.com',
       path: '/v1/messages',
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'Content-Type':      'application/json',
+        'x-api-key':         process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'mcp-client-2025-04-04'
+        'anthropic-beta':    betas.join(',')
       }
     }, (res) => {
       let data = '';
@@ -126,139 +154,166 @@ function extractText(response) {
     .join('\n');
 }
 
-// ── Links a carpetas de Drive por categoría ───────────────────────────
-// Reemplazar con los IDs reales de las carpetas en Google Drive de Vik
-const DRIVE_FOLDERS = {
-  'Criterio Propio': 'https://drive.google.com/drive/folders/1sR0Kct_Is7u-y9ljCPq7uhJjDOrgX6KB',
-  'Detrás de Escena': 'https://drive.google.com/drive/folders/1xmi-Slocjpb4K9e8F08FTD0lWOKnbyGy',
-  'Lifestyle Creativo': 'https://drive.google.com/drive/folders/1brONZaRmTfEqrcgtEBY0i7snKxNUFT2-',
-  'Fan de lo que hacemos': 'https://drive.google.com/drive/folders/1L_IeqeyOmNnAMhxKtQQ9hvtEg-SoskPF',
-  'Sin Contexto': 'https://drive.google.com/drive/folders/19G4B8C2urkrgsJ722iIWCoPpGA8l77xO'
-};
-
-// ── PASO 1: Leer Airtable ─────────────────────────────────────────────
-const airtableMCP = [{
-  type: 'url',
-  url: 'https://mcp.airtable.com/mcp',
-  name: 'airtable',
-  authorization_token: process.env.AIRTABLE_TOKEN
-}];
-
-
-// ── Main ─────────────────────────────────────────────────────────────────────
-async function main() {
-console.log('📖 Leyendo Airtable...');
-
-const lecturaPrompt = `Usá el Airtable MCP para leer los datos necesarios. Base: ${AIRTABLE_BASE}.
-
-TAREA 1: Leé TODOS los registros de la tabla Journal (${TABLE_JOURNAL}).
-Devolveme una lista de los registros con estado "ideas_crudas" o "en_desarrollo", incluyendo:
-- ID del registro
-- Título / nombre de la anécdota
-- Estado
-- Categoría sugerida
-- Anécdota (texto completo)
-- Fotos asociadas
-
-TAREA 2: Leé los registros de la tabla Categorías (${TABLE_CATS}).
-Devolveme el estado de cada categoría (cuánto tiempo sin postear, si tiene hambre o está al día).
-
-Respondé SOLO con un JSON válido, sin markdown, con esta estructura exacta:
-{
-  "anecdotas": [
-    {
-      "id": "recXXX",
-      "titulo": "...",
-      "estado": "ideas_crudas",
-      "categoria": "...",
-      "texto": "...",
-      "fotos": "..."
-    }
-  ],
-  "categorias": [
-    {
-      "nombre": "...",
-      "estado": "hambre | al_dia | hace_tiempo",
-      "ultimo_posteo": "..."
-    }
-  ]
-}`;
-
-let airtableData;
-try {
-  const airtableResp = await callAnthropic(lecturaPrompt, airtableMCP);
-  const rawText = extractText(airtableResp);
-  // Buscar JSON en la respuesta
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  airtableData = jsonMatch ? JSON.parse(jsonMatch[0]) : { anecdotas: [], categorias: [] };
-  console.log(`✅ Encontradas ${airtableData.anecdotas?.length || 0} anécdotas disponibles`);
-} catch (e) {
-  console.error('Error leyendo Airtable:', e.message);
-  airtableData = { anecdotas: [], categorias: [] };
+function parseJSON(text) {
+  const m = text.match(/\{[\s\S]*\}/);
+  return m ? JSON.parse(m[0]) : null;
 }
 
-const anecdotas = airtableData.anecdotas || [];
-const categorias = airtableData.categorias || [];
-const hayMaterial = anecdotas.length >= 3;
+// ── Airtable REST directo (sin MCP) ────────────────────────────────────────
+async function fetchAirtableTable(tableId) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.airtable.com',
+      path: `/v0/${AIRTABLE_BASE}/${tableId}?pageSize=100`,
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${process.env.AIRTABLE_TOKEN}`
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) reject(new Error(`Airtable [${tableId}]: ${JSON.stringify(parsed.error)}`));
+          else resolve(parsed.records || []);
+        } catch (e) {
+          reject(new Error('Parse Airtable error: ' + data.slice(0, 300)));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
-// ── PASO 2 y 3: Generar copys O pitches ──────────────────────────────
-console.log(hayMaterial
-  ? '✍️ Hay suficiente material — generando 3 copys...'
-  : '💡 Poco material — generando pitches por categoría...'
-);
+async function updateAirtableRecord(tableId, recordId, fields) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ fields });
+    const req = https.request({
+      hostname: 'api.airtable.com',
+      path: `/v0/${AIRTABLE_BASE}/${tableId}/${recordId}`,
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${process.env.AIRTABLE_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve(JSON.parse(data)));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
 
-const categoriasEditoriales = [
-  'Criterio Propio 🔴',
-  'Detrás de Escena 🟡',
-  'Lifestyle Creativo 🟢',
-  'Fan de lo que hacemos 🔵'
-];
+// ── HTML helpers ────────────────────────────────────────────────────────────
+function card(inner, extraStyle = '') {
+  return `<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:24px${extraStyle}">${inner}</div>`;
+}
 
-const vozInstrucciones = `
-VOZ DE VIK — REGLAS ABSOLUTAS:
-- Español rioplatense, voseo siempre
-- Tono: poético pero asertivo — metáforas concretas, no poesía vaga
-- Estructura: anécdota real → insight → pregunta genuina (referente: Leticia Fenoglio, CEO Franuí)
-- NUNCA inventar detalles que no estén en la anécdota — si falta algo, notarlo
-- NUNCA autoayuda genérica, anglicismos, ni hashtags dentro del copy
-- Emojis: máx 2-3, solo si agregan tono
-- Cierre: pregunta que nace del posteo, no un "¿qué te parece?" genérico
+function renderSubstackSecciones(secciones) {
+  return (secciones || []).map(s => {
+    if (s.tipo === 'h2') {
+      return `<h2 style="font-size:18px;font-weight:700;color:#111827;margin:24px 0 8px;padding-top:8px;border-top:1px solid #f3f4f6">${s.texto}</h2><div style="color:#1f2937;font-size:15px;line-height:1.8">${s.contenido}</div>`;
+    }
+    if (s.tipo === 'h3') {
+      return `<h3 style="font-size:16px;font-weight:600;color:#374151;margin:18px 0 6px">${s.texto}</h3><div style="color:#1f2937;font-size:15px;line-height:1.8">${s.contenido}</div>`;
+    }
+    return `<p style="color:#1f2937;font-size:15px;line-height:1.8;margin:12px 0">${s.contenido}</p>`;
+  }).join('');
+}
 
-CATEGORÍAS:
-- Criterio Propio 🔴: historia personal → insight → cierre empático. Formato B (150-300 palabras). 1/semana.
-- Detrás de Escena 🟡: cocina real de Monoblock/Happimess con humor cómplice. Foto real + caption jugoso. 1/semana.
-- Lifestyle Creativo 🟢: lo que lee, ve, obsesiona Vik. Siempre hay criterio. Carrusel o quote. 1 cada 2 semanas.
-- Fan de lo que hacemos 🔵: Vik como primera fan de sus productos. Sin tono comercial. Máx 1 cada 2 semanas.
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ══════════════════════════════════════════════════════════════════════════════
+(async () => {
+  const today = new Date().toLocaleDateString('es-AR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    timeZone: 'America/Argentina/Buenos_Aires'
+  });
 
-FORMATOS:
-- A — Quote: una frase. Poética, asertiva, con ritmo.
-- B — Reflexión con anécdota: escena concreta → reflexión → cierre que conecta. 150-300 palabras.
-- C — Carrusel: 5-8 slides. Cover que engancha sin clickbait. Una idea por slide.
-- D — Historia con punto: minirelato 2-3 párrafos. Observación final, no moraleja.`;
+  // ── PASO 1: Leer Airtable vía REST directo ────────────────────────────────
+  console.log('📖 Leyendo Airtable vía REST...');
 
-let seccionContenido = '';
-let registrosUsados = [];
+  let journalRecords = [];
+  let catRecords = [];
 
-if (hayMaterial) {
-  // ── Generar 3 copys a partir de anécdotas reales ──────────────────
-  const anecdotasTexto = anecdotas.slice(0, 5).map((a, i) =>
-    `ANÉCDOTA ${i+1} [ID: ${a.id}]\nTítulo: ${a.titulo}\nCategoría sugerida: ${a.categoria}\nTexto: ${a.texto}\nFotos disponibles: ${a.fotos || 'ninguna'}`
-  ).join('\n\n---\n\n');
+  try {
+    journalRecords = await fetchAirtableTable(TABLE_JOURNAL);
+    console.log(`✅ Journal: ${journalRecords.length} registros`);
+    if (journalRecords.length > 0) {
+      const campos = Object.keys(journalRecords[0].fields);
+      console.log('   Campos:', campos.join(', '));
+      console.log('   Muestra reg[0]:', JSON.stringify(journalRecords[0].fields).slice(0, 400));
+    }
+  } catch (e) {
+    console.error('❌ Error leyendo Journal:', e.message);
+  }
 
-  const categoriasTexto = categorias.map(c =>
-    `${c.nombre}: ${c.estado}${c.ultimo_posteo ? ` (último posteo: ${c.ultimo_posteo})` : ''}`
-  ).join('\n');
+  try {
+    catRecords = await fetchAirtableTable(TABLE_CATS);
+    console.log(`✅ Categorías: ${catRecords.length} registros`);
+    if (catRecords.length > 0) {
+      console.log('   Campos:', Object.keys(catRecords[0].fields).join(', '));
+    }
+  } catch (e) {
+    console.error('❌ Error leyendo Categorías:', e.message);
+  }
 
-  const generacionPrompt = `${vozInstrucciones}
+  // Formatear registros del Journal como texto legible para el prompt
+  const journalTexto = journalRecords.length > 0
+    ? journalRecords.map((r, i) => {
+        const f = r.fields;
+        const lineas = Object.entries(f).map(([k, v]) => {
+          const val = Array.isArray(v)
+            ? v.map(x => x.url || x.filename || JSON.stringify(x)).join(', ')
+            : typeof v === 'object' && v !== null
+            ? JSON.stringify(v)
+            : String(v);
+          return `  ${k}: ${val}`;
+        });
+        return `REGISTRO ${i + 1} [ID: ${r.id}]\n${lineas.join('\n')}`;
+      }).join('\n\n---\n\n')
+    : 'Sin registros en el Journal esta semana.';
 
-Hoy es ${today}. Tenés estas anécdotas disponibles en el journal de Vik:
+  const categoriasTexto = catRecords.length > 0
+    ? catRecords.map(r => {
+        const f = r.fields;
+        return Object.entries(f).map(([k, v]) => `${k}: ${v}`).join(' | ');
+      }).join('\n')
+    : 'Sin datos de categorías.';
 
-${anecdotasTexto}
+  const hayMaterial = journalRecords.length >= 3;
 
-Estado actual de categorías (para balancear):
-${categoriasTexto || 'Sin datos de categorías — balancear de forma equitativa'}
+  // Detectar nombre del campo Estado para actualizaciones posteriores
+  const estadoFieldName = journalRecords.length > 0
+    ? (Object.keys(journalRecords[0].fields).find(k => /^estado$/i.test(k)) || 'Estado')
+    : 'Estado';
 
-TAREA: Elegí las 3 anécdotas más fuertes (priorizando las categorías con más "hambre").
+  // ── PASO 2: Generar copys o pitches ──────────────────────────────────────
+  console.log(hayMaterial
+    ? `✍️ ${journalRecords.length} registros — generando 3 copys...`
+    : `💡 Solo ${journalRecords.length} registros — generando pitches...`
+  );
+
+  let seccionContenido = '';
+  let registrosUsados = [];
+
+  if (hayMaterial) {
+    const generacionPrompt = `${VOZ}
+
+Hoy es ${today}. Estos son los registros del Journal de @vikarrieta en Airtable:
+
+${journalTexto}
+
+Estado actual de categorías (para balancear el mix):
+${categoriasTexto}
+
+TAREA: Elegí las 3 anécdotas más fuertes (priorizando categorías con más "hambre" o sin posteos recientes).
 Para cada una, generá el copy completo listo para publicar.
 
 Respondé SOLO con JSON válido, sin markdown:
@@ -271,37 +326,34 @@ Respondé SOLO con JSON válido, sin markdown:
       "emoji_categoria": "🔴 | 🟡 | 🟢 | 🔵",
       "formato": "A | B | C | D",
       "dia_sugerido": "lunes | martes | miércoles | jueves | viernes",
-      "hora_sugerida": "...",
-      "copy": "...",
-      "slides": ["slide 1", "slide 2", "..."],
+      "hora_sugerida": "HH:MM",
+      "copy": "texto completo del posteo",
+      "slides": ["slide 1", "slide 2"],
       "pregunta_cierre": "...",
       "carpeta_drive": "Criterio Propio | Detrás de Escena | Lifestyle Creativo | Fan de lo que hacemos",
-      "nota_imagen": "descripción de qué tipo de foto buscar o nombre de archivo si lo conocés"
+      "nota_imagen": "qué foto buscar o nombre de archivo"
     }
   ]
 }
 
-Nota: el campo "slides" solo se completa para Formato C (Carrusel). Para otros formatos dejarlo como array vacío [].`;
+Nota: "slides" solo para Formato C. Para otros formatos dejar como [].`;
 
-  try {
-    const genResp = await callAnthropic(generacionPrompt);
-    const rawGen = extractText(genResp);
-    const jsonMatch = rawGen.match(/\{[\s\S]*\}/);
-    const genData = jsonMatch ? JSON.parse(jsonMatch[0]) : { posteos: [] };
-    const posteos = genData.posteos || [];
-    registrosUsados = posteos.map(p => p.id_registro).filter(Boolean);
+    try {
+      const genResp = await callAnthropic(generacionPrompt);
+      const genData = parseJSON(extractText(genResp));
+      const posteos = genData?.posteos || [];
+      registrosUsados = posteos.map(p => p.id_registro).filter(Boolean);
 
-    seccionContenido = posteos.map((p, i) => {
-      const driveLink = DRIVE_FOLDERS[p.carpeta_drive] || DRIVE_FOLDERS['Sin Contexto'];
-      const slidesHtml = p.formato === 'C' && p.slides?.length
-        ? `<div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:12px 16px;margin:12px 0;border-radius:0 6px 6px 0">
-            <strong>Slides del carrusel:</strong><br>
-            ${p.slides.map((s, idx) => `<span style="color:#92400e">Slide ${idx+1}:</span> ${s}`).join('<br>')}
-           </div>`
-        : '';
+      seccionContenido = posteos.map((p, i) => {
+        const driveLink = DRIVE_FOLDERS[p.carpeta_drive] || DRIVE_FOLDERS['Sin Contexto'];
+        const slidesHtml = p.formato === 'C' && p.slides?.length
+          ? `<div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:12px 16px;margin:12px 0;border-radius:0 6px 6px 0">
+               <strong>Slides del carrusel:</strong><br>
+               ${p.slides.map((s, idx) => `<span style="color:#92400e">Slide ${idx+1}:</span> ${s}`).join('<br>')}
+             </div>`
+          : '';
 
-      return `
-<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:24px">
+        return card(`
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;border-bottom:1px solid #f3f4f6;padding-bottom:12px">
     <span style="font-size:24px">${p.emoji_categoria}</span>
     <div>
@@ -310,42 +362,44 @@ Nota: el campo "slides" solo se completa para Formato C (Carrusel). Para otros f
     </div>
     <div style="margin-left:auto;background:#f3f4f6;padding:4px 10px;border-radius:20px;font-size:12px;color:#374151">Posteo ${i+1}/3</div>
   </div>
-
   <div style="font-size:13px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Copy</div>
   <div style="background:#f9fafb;border-radius:8px;padding:16px;font-size:15px;line-height:1.7;color:#1f2937;white-space:pre-wrap">${p.copy}</div>
-
   ${slidesHtml}
-
   ${p.pregunta_cierre ? `<div style="background:#fef3c7;border-radius:8px;padding:12px 16px;margin-top:12px;font-size:14px;color:#78350f"><strong>💬 Pregunta de cierre:</strong> ${p.pregunta_cierre}</div>` : ''}
-
-  <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+  <div style="margin-top:16px">
     <a href="${driveLink}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600">🖼️ Ver fotos en Drive</a>
   </div>
-  ${p.nota_imagen ? `<div style="margin-top:8px;font-size:13px;color:#6b7280">📎 ${p.nota_imagen}</div>` : ''}
-</div>`;
-    }).join('');
+  ${p.nota_imagen ? `<div style="margin-top:8px;font-size:13px;color:#6b7280">📎 ${p.nota_imagen}</div>` : ''}`);
+      }).join('');
 
-  } catch (e) {
-    console.error('Error generando copys:', e.message);
-    seccionContenido = `<p style="color:red">Error al generar copys: ${e.message}</p>`;
-  }
+    } catch (e) {
+      console.error('❌ Error generando copys:', e.message);
+      seccionContenido = `<p style="color:red">Error al generar copys: ${e.message}</p>`;
+    }
 
-} else {
-  // ── Generar pitches por categoría faltante ────────────────────────
-  const categoriasConMaterial = [...new Set(anecdotas.map(a => a.categoria))];
-  const categoriasFaltantes = ['Criterio Propio', 'Detrás de Escena', 'Lifestyle Creativo', 'Fan de lo que hacemos']
-    .filter(c => !categoriasConMaterial.includes(c));
+  } else {
+    // Pitches para categorías faltantes
+    const categoriasConMaterial = [...new Set(journalRecords.map(r => {
+      const f = r.fields;
+      return f['Categoría sugerida'] || f['Categoria sugerida'] || f['Categoría'] || f['Categoria'] || '';
+    }).filter(Boolean))];
 
-  const pitchPrompt = `${vozInstrucciones}
+    const todasCats = ['Criterio Propio', 'Detrás de Escena', 'Lifestyle Creativo', 'Fan de lo que hacemos'];
+    const categoriasFaltantes = todasCats.filter(c => !categoriasConMaterial.includes(c));
 
-Hoy es ${today}. El journal de @vikarrieta tiene poco material (${anecdotas.length} anécdota${anecdotas.length !== 1 ? 's' : ''}).
+    const pitchPrompt = `${VOZ}
 
-Categorías SIN material esta semana: ${categoriasFaltantes.join(', ')}
+Hoy es ${today}. El journal de @vikarrieta tiene poco material (${journalRecords.length} anécdota${journalRecords.length !== 1 ? 's' : ''}).
+
+Material disponible:
+${journalTexto}
+
+Categorías SIN material esta semana: ${categoriasFaltantes.join(', ') || 'ninguna — usá las existentes'}
 Categorías con algo: ${categoriasConMaterial.join(', ') || 'ninguna'}
 
-CONTEXTO DE VIK: Founder-CEO de Monoblock (estudio de diseño editorial) y creadora de Happimess (marca de lifestyle, calendarios y agendas). Trabaja desde Buenos Aires. Le interesa el diseño, la creatividad, el proceso de construir una marca con criterio, la vida cotidiana con consciencia.
+CONTEXTO DE VIK: Founder-CEO de Monoblock (estudio de diseño editorial) y creadora de Happimess (calendarios y agendas). Trabaja desde Buenos Aires.
 
-TAREA: Generá 2 pitches de ideas originales para CADA categoría faltante. Los pitches son semillas para que Vik recuerde algo que le pasó o decida compartir algo concreto — no son copys inventados, son disparadores.
+TAREA: Generá 2 pitches de ideas para CADA categoría faltante. Los pitches son disparadores para que Vik recuerde algo concreto.
 
 Respondé SOLO con JSON válido:
 {
@@ -353,132 +407,218 @@ Respondé SOLO con JSON válido:
     {
       "categoria": "...",
       "emoji": "...",
-      "titulo": "Título breve del pitch",
-      "disparador": "Pregunta o situación concreta para que Vik explore si tiene algo similar",
-      "angulo": "Qué haría valioso este contenido y por qué conectaría",
+      "titulo": "título breve",
+      "disparador": "pregunta o situación concreta",
+      "angulo": "qué haría valioso este contenido",
       "formato_sugerido": "A | B | C | D"
     }
   ]
 }`;
 
-  try {
-    const pitchResp = await callAnthropic(pitchPrompt);
-    const rawPitch = extractText(pitchResp);
-    const jsonMatch = rawPitch.match(/\{[\s\S]*\}/);
-    const pitchData = jsonMatch ? JSON.parse(jsonMatch[0]) : { pitches: [] };
-    const pitches = pitchData.pitches || [];
+    try {
+      const pitchResp = await callAnthropic(pitchPrompt);
+      const pitchData = parseJSON(extractText(pitchResp));
+      const pitches = pitchData?.pitches || [];
 
-    // Agrupar por categoría
-    const porCategoria = {};
-    pitches.forEach(p => {
-      if (!porCategoria[p.categoria]) porCategoria[p.categoria] = [];
-      porCategoria[p.categoria].push(p);
-    });
+      const porCategoria = {};
+      pitches.forEach(p => {
+        if (!porCategoria[p.categoria]) porCategoria[p.categoria] = [];
+        porCategoria[p.categoria].push(p);
+      });
 
-    seccionContenido = `
-<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:20px;margin-bottom:24px">
-  <h3 style="margin:0 0 8px;color:#991b1b">⚠️ Poco material esta semana</h3>
-  <p style="margin:0;color:#7f1d1d;font-size:14px">Hay ${anecdotas.length} anécdota${anecdotas.length !== 1 ? 's' : ''} en el journal — menos de 3. Acá van ideas para completar la semana:</p>
-</div>
-
-${Object.entries(porCategoria).map(([cat, items]) => `
-<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:24px">
+      seccionContenido = `
+${card(`<h3 style="margin:0 0 8px;color:#991b1b">⚠️ Poco material esta semana</h3>
+<p style="margin:0;color:#7f1d1d;font-size:14px">${journalRecords.length} anécdota${journalRecords.length !== 1 ? 's' : ''} en el journal. Acá van ideas para completar la semana:</p>`, ';background:#fef2f2;border-color:#fecaca')}
+${Object.entries(porCategoria).map(([cat, items]) => card(`
   <h3 style="margin:0 0 16px;color:#111827">${items[0]?.emoji || ''} ${cat}</h3>
   ${items.map((p, i) => `
   <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:12px">
     <div style="font-weight:700;color:#1f2937;margin-bottom:6px">Idea ${i+1}: ${p.titulo}</div>
     <div style="color:#374151;margin-bottom:8px;font-size:14px">💭 <em>${p.disparador}</em></div>
-    <div style="color:#6b7280;font-size:13px">📐 Ángulo: ${p.angulo}</div>
+    <div style="color:#6b7280;font-size:13px">📐 ${p.angulo}</div>
     <div style="color:#9ca3af;font-size:12px;margin-top:4px">Formato sugerido: ${p.formato_sugerido}</div>
-  </div>`).join('')}
-</div>`).join('')}`;
+  </div>`).join('')}`)).join('')}`;
 
-  } catch (e) {
-    console.error('Error generando pitches:', e.message);
-    seccionContenido = `<p style="color:red">Error al generar pitches: ${e.message}</p>`;
+    } catch (e) {
+      console.error('❌ Error generando pitches:', e.message);
+      seccionContenido = `<p style="color:red">Error al generar pitches: ${e.message}</p>`;
+    }
   }
-}
 
-// ── PASO 5: Artículo para Substack ───────────────────────────────────
-console.log('📝 Generando artículo para Substack...');
+  // ── PASO 3: Artículo Substack ─────────────────────────────────────────────
+  // Con anécdotas de la semana como contexto + subtítulos H2 + fuentes reales
+  console.log('📝 Generando artículo Substack...');
 
-// Los XMLs del blog están en el proyecto — pasamos extractos representativos como referencia
-const substackPrompt = `Sos redactora editorial de Happimess. Hoy es ${today}.
+  const anecdotasResumen = journalRecords.length > 0
+    ? journalRecords.slice(0, 5).map(r => {
+        const f = r.fields;
+        // Buscar el título (primer campo de texto string o campo llamado Name/Nombre/Título)
+        const titulo = f['Name'] || f['Nombre'] || f['Título'] || f['Titulo']
+          || Object.values(f).find(v => typeof v === 'string' && v.length > 3)
+          || r.id;
+        // Buscar el texto/contenido
+        const texto = f['Anécdota'] || f['Anecdota'] || f['Texto'] || f['Contenido'] || f['Notes'] || f['Nota'] || '';
+        return `- "${titulo}"${texto ? ': ' + String(texto).slice(0, 200) : ''}`;
+      }).join('\n')
+    : 'Sin anécdotas en el journal esta semana.';
 
-HAPPIMESS es una marca de lifestyle creada por Vik Arrieta (Buenos Aires). Vende calendarios y agendas con diseño. Su voz: editorial, cálida, con criterio. No es la voz personal de Vik — es la voz de la marca. Más reflexiva, más diseñada. El blog de Happimess tiene 5 categorías: Activar (motivación y acción), Crecer (aprendizaje y desarrollo), Descubrir (cultura y curiosidad), Disfrutar (placer cotidiano) y Viajar (experiencias y lugares).
+  const substackPrompt = `Sos redactora editorial de Happimess. Hoy es ${today}.
 
-TAREA: Generá un artículo para el Substack de Happimess. El artículo debe:
-1. Tomar un tema central del universo Happimess (diseño, creatividad, lifestyle consciente, tiempo, organización con propósito)
-2. Cruzarlo con una tendencia actual relevante en diseño, cultura o trabajo creativo
-3. Voz: la de la marca Happimess — editorial, generosa, con criterio. NO la voz personal de Vik.
-4. Extensión: 400-600 palabras
-5. Estructura: título, bajada (2-3 líneas), cuerpo del artículo, párrafo de cierre
+HAPPIMESS es una marca de lifestyle creada por Vik Arrieta (Buenos Aires). Vende calendarios y agendas con diseño. Voz: editorial, cálida, con criterio. NO es la voz personal de Vik — es la voz de la marca.
+
+ANÉCDOTAS DE LA SEMANA EN EL JOURNAL DE VIK (usá una como disparador del artículo):
+${anecdotasResumen}
+
+TAREA: Generá un artículo para el Substack de Happimess que:
+1. Tome como DISPARADOR una de las anécdotas de la semana (indicá cuál usaste)
+2. Desarrolle un tema del universo Happimess (diseño, creatividad, tiempo, organización con propósito)
+3. Incluya FUENTES REALES: libros, estudios, personas o publicaciones con nombre, autor y contexto
+4. Use subtítulos H2 para separar las partes (mínimo 2 secciones)
+5. Extensión: 500-700 palabras
+
+Respondé SOLO con JSON válido, sin markdown:
+{
+  "titulo": "...",
+  "bajada": "dos o tres líneas de presentación",
+  "anecdota_disparadora": "título de la anécdota del journal que usaste",
+  "secciones": [
+    { "tipo": "p", "contenido": "párrafo introductorio" },
+    { "tipo": "h2", "texto": "Primer subtítulo", "contenido": "desarrollo de esa sección" },
+    { "tipo": "h2", "texto": "Segundo subtítulo", "contenido": "desarrollo" },
+    { "tipo": "h2", "texto": "Tercer subtítulo", "contenido": "desarrollo" }
+  ],
+  "cierre": "párrafo de cierre de la marca",
+  "fuentes": [
+    "Nombre Apellido, Título del libro o estudio (año) — por qué es relevante",
+    "Nombre de la publicación o investigación — qué aporta"
+  ],
+  "sugerencia_imagen_portada": "descripción de imagen ideal para la portada",
+  "tendencia_usada": "tendencia o fenómeno que usaste como gancho"
+}`;
+
+  let substackHtml = '';
+  try {
+    const substackResp = await callAnthropic(substackPrompt, {
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+      extraBetas: ['web-search-2025-03-05']
+    });
+    const substackData = parseJSON(extractText(substackResp));
+
+    if (substackData) {
+      const fuentesHtml = substackData.fuentes?.length
+        ? `<div style="margin-top:20px;background:#f0f9ff;border-radius:8px;padding:14px">
+             <div style="font-size:12px;color:#0369a1;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">📚 Fuentes</div>
+             ${substackData.fuentes.map(f => `<div style="font-size:13px;color:#0c4a6e;margin-bottom:6px">• ${f}</div>`).join('')}
+           </div>`
+        : '';
+
+      substackHtml = card(`
+  <div style="display:inline-block;background:#f0fdf4;color:#166534;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-bottom:16px">SUBSTACK · HAPPIMESS</div>
+  <h2 style="margin:0 0 10px;color:#111827;font-size:22px;line-height:1.3">${substackData.titulo}</h2>
+  <p style="color:#6b7280;font-size:15px;font-style:italic;margin-bottom:16px;border-bottom:1px solid #f3f4f6;padding-bottom:16px">${substackData.bajada}</p>
+  ${substackData.anecdota_disparadora ? `<div style="background:#fef3c7;border-radius:6px;padding:8px 12px;font-size:13px;color:#78350f;margin-bottom:16px">💡 Disparador: "${substackData.anecdota_disparadora}"</div>` : ''}
+  ${renderSubstackSecciones(substackData.secciones)}
+  <div style="color:#374151;font-size:15px;line-height:1.8;margin-top:20px;padding-top:16px;border-top:1px solid #f3f4f6">${substackData.cierre}</div>
+  ${fuentesHtml}
+  <div style="margin-top:16px;background:#f9fafb;border-radius:8px;padding:12px">
+    <div style="font-size:12px;color:#9ca3af;font-weight:600;text-transform:uppercase">Imagen de portada sugerida</div>
+    <div style="font-size:13px;color:#374151;margin-top:4px">🖼️ ${substackData.sugerencia_imagen_portada || '—'}</div>
+    <div style="font-size:12px;color:#9ca3af;margin-top:6px">Tendencia: ${substackData.tendencia_usada || '—'}</div>
+  </div>`);
+    } else {
+      substackHtml = `<p style="color:orange">⚠️ Substack generado pero JSON no parseable.</p>`;
+    }
+  } catch (e) {
+    console.error('❌ Error Substack:', e.message);
+    substackHtml = `<p style="color:red">Error al generar artículo: ${e.message}</p>`;
+  }
+
+  // ── PASO 4: Preguntas disparadoras para la semana ─────────────────────────
+  console.log('❓ Generando preguntas disparadoras...');
+
+  let preguntasHtml = '';
+  try {
+    const preguntasPrompt = `Sos el agente de contenido de @vikarrieta. Hoy es ${today}.
+
+Vik es Founder-CEO de Monoblock (diseño editorial) y creadora de Happimess (calendarios y agendas). Su Instagram documenta su vida creativa con criterio y sin filtro.
+
+ANÉCDOTAS DE ESTA SEMANA EN EL JOURNAL:
+${anecdotasResumen}
+
+TAREA: Generá 3 preguntas concretas para que Vik trabaje en su Diario durante la semana que viene.
+Las respuestas se guardarán en Airtable y alimentarán tanto los posteos como el próximo artículo Substack.
+
+Las preguntas deben:
+- Ser específicas, no genéricas ("¿Qué decisión tomaste esta semana que al principio te costó?" > "¿Cómo te fue?")
+- Apuntar a momentos concretos: decisiones, conversaciones, tensiones, descubrimientos
+- Mezclar: vida profesional (Monoblock/Happimess), proceso creativo, criterio personal
+- Invitar a encontrar la anécdota, no a reflexionar en abstracto
 
 Respondé SOLO con JSON válido:
 {
-  "titulo": "...",
-  "bajada": "...",
-  "cuerpo": "...",
-  "cierre": "...",
-  "sugerencia_imagen_portada": "descripción de imagen ideal para la portada",
-  "tendencia_usada": "nombre de la tendencia o fenómeno cultural que usaste como gancho"
+  "preguntas": [
+    {
+      "pregunta": "¿...?",
+      "contexto": "Para qué sirve — qué tipo de contenido puede generar",
+      "categoria_potencial": "Criterio Propio | Detrás de Escena | Lifestyle Creativo | Fan de lo que hacemos"
+    }
+  ]
 }`;
 
-let substackHtml = '';
-try {
-  const substackResp = await callAnthropic(substackPrompt);
-  const rawSubstack = extractText(substackResp);
-  const jsonMatch = rawSubstack.match(/\{[\s\S]*\}/);
-  const substackData = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    const preguntasResp = await callAnthropic(preguntasPrompt);
+    const preguntasData = parseJSON(extractText(preguntasResp));
+    const preguntas = preguntasData?.preguntas || [];
 
-  if (substackData) {
-    substackHtml = `
-<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;margin-bottom:24px">
-  <div style="display:inline-block;background:#f0fdf4;color:#166534;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-bottom:16px">SUBSTACK · HAPPIMESS</div>
-  <h2 style="margin:0 0 10px;color:#111827;font-size:22px;line-height:1.3">${substackData.titulo}</h2>
-  <p style="color:#6b7280;font-size:15px;font-style:italic;margin-bottom:20px;border-bottom:1px solid #f3f4f6;padding-bottom:16px">${substackData.bajada}</p>
-  <div style="color:#1f2937;font-size:15px;line-height:1.8;white-space:pre-wrap">${substackData.cuerpo}</div>
-  <div style="color:#374151;font-size:15px;line-height:1.8;margin-top:16px;padding-top:16px;border-top:1px solid #f3f4f6">${substackData.cierre}</div>
-  <div style="margin-top:20px;background:#f9fafb;border-radius:8px;padding:14px">
-    <div style="font-size:12px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Imagen de portada sugerida</div>
-    <div style="font-size:14px;color:#374151;margin-top:4px">🖼️ ${substackData.sugerencia_imagen_portada}</div>
-    <div style="font-size:12px;color:#9ca3af;margin-top:8px">Tendencia usada como gancho: ${substackData.tendencia_usada}</div>
+    if (preguntas.length > 0) {
+      const emojiCat = {
+        'Criterio Propio':       '🔴',
+        'Detrás de Escena':      '🟡',
+        'Lifestyle Creativo':    '🟢',
+        'Fan de lo que hacemos': '🔵'
+      };
+
+      preguntasHtml = card(`
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <span style="font-size:22px">✍️</span>
+    <div>
+      <div style="font-weight:700;color:#111827;font-size:16px">Preguntas para tu Diario esta semana</div>
+      <div style="color:#6b7280;font-size:13px">Las respuestas se guardan en Airtable y alimentan el próximo ciclo</div>
+    </div>
   </div>
-</div>`;
-  }
-} catch (e) {
-  console.error('Error generando artículo Substack:', e.message);
-  substackHtml = `<p style="color:red">Error al generar artículo: ${e.message}</p>`;
-}
-
-// ── PASO 6: Actualizar estados en Airtable ────────────────────────────
-if (hayMaterial && registrosUsados.length > 0) {
-  console.log('🔄 Actualizando estados en Airtable...');
-  const updatePrompt = `Usá el Airtable MCP para actualizar registros en la base ${AIRTABLE_BASE}, tabla ${TABLE_JOURNAL}.
-
-Para CADA uno de estos IDs de registro, actualizá el campo Estado (flddgvfDKoy0hAzi4) al valor "listo_para_postear":
-${registrosUsados.map(id => `- ${id}`).join('\n')}
-
-Confirmá cuando hayas actualizado todos los registros.`;
-
-  try {
-    await callAnthropic(updatePrompt, airtableMCP);
-    console.log('✅ Estados actualizados en Airtable');
+  ${preguntas.map((p, i) => `
+  <div style="background:#f8fafc;border-left:3px solid #6366f1;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:12px">
+    <div style="font-weight:700;color:#1f2937;font-size:15px;margin-bottom:6px">${i+1}. ${p.pregunta}</div>
+    <div style="color:#6b7280;font-size:13px;margin-bottom:4px">${p.contexto}</div>
+    ${p.categoria_potencial ? `<div style="font-size:12px;color:#818cf8">${emojiCat[p.categoria_potencial] || ''} ${p.categoria_potencial}</div>` : ''}
+  </div>`).join('')}`, ';background:#fafafa');
+    }
   } catch (e) {
-    console.error('Error actualizando Airtable:', e.message);
+    console.error('❌ Error preguntas:', e.message);
   }
-}
 
-// ── PASO 7: Armar y enviar el Gmail ──────────────────────────────────
-console.log('📧 Enviando Gmail...');
+  // ── PASO 5: Actualizar estados en Airtable ────────────────────────────────
+  if (hayMaterial && registrosUsados.length > 0) {
+    console.log(`🔄 Actualizando ${registrosUsados.length} registros → listo_para_postear...`);
+    for (const recId of registrosUsados) {
+      try {
+        await updateAirtableRecord(TABLE_JOURNAL, recId, { [estadoFieldName]: 'listo_para_postear' });
+        console.log(`  ✅ ${recId}`);
+      } catch (e) {
+        console.error(`  ❌ ${recId}:`, e.message);
+      }
+    }
+  }
 
-const seccionTitulo = hayMaterial
-  ? `<h2 style="color:#111827;font-size:20px;margin:0 0 8px">📅 Posteos de la semana</h2>
-     <p style="color:#6b7280;margin:0 0 24px;font-size:14px">3 posteos listos para publicar. Revisá los copys, abrí el Drive para elegir las fotos y usá Cowork para crear los diseños en Canva cuando quieras.</p>`
-  : `<h2 style="color:#991b1b;font-size:20px;margin:0 0 8px">💡 Ideas para la semana</h2>
-     <p style="color:#6b7280;margin:0 0 24px;font-size:14px">Poco material esta semana. Acá van disparadores para que recordés algo concreto o generes contenido fresco.</p>`;
+  // ── PASO 6: Armar y enviar el Gmail ──────────────────────────────────────
+  console.log('📧 Enviando Gmail...');
 
-const gmailBody = `<!DOCTYPE html>
+  const seccionTitulo = hayMaterial
+    ? `<h2 style="color:#111827;font-size:20px;margin:0 0 8px">📅 Posteos de la semana</h2>
+       <p style="color:#6b7280;margin:0 0 24px;font-size:14px">3 posteos listos. Revisá los copys, abrí Drive para las fotos, pedile a Cowork el diseño en Canva.</p>`
+    : `<h2 style="color:#991b1b;font-size:20px;margin:0 0 8px">💡 Ideas para la semana</h2>
+       <p style="color:#6b7280;margin:0 0 24px;font-size:14px">Poco material. Acá van disparadores para generar contenido fresco.</p>`;
+
+  const gmailBody = `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
@@ -491,30 +631,31 @@ const gmailBody = `<!DOCTYPE html>
     <p style="margin:0;color:#d1d5db;font-size:14px">${today}</p>
   </div>
 
-  <!-- Índice rápido -->
-  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:24px">
-    <div style="font-size:12px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px">Este mail tiene</div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:14px;color:#374151">${hayMaterial ? '✅ 3 posteos con copy completo' : '💡 Pitches de ideas por categoría'}</div>
-      <div style="font-size:14px;color:#374151">🖼️ Links a carpetas de Drive por categoría</div>
-      <div style="font-size:14px;color:#374151">📰 Borrador artículo Substack de Happimess</div>
-      <div style="font-size:14px;color:#374151">🎨 Diseños en Canva: pedile a Cowork "armá el diseño del posteo de hoy"</div>
-    </div>
-  </div>
+  <!-- Índice -->
+  ${card(`
+  <div style="font-size:12px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px">Este mail tiene</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;color:#374151">${hayMaterial ? '✅ 3 posteos con copy completo' : '💡 Pitches de ideas por categoría'}</div>
+    <div style="font-size:14px;color:#374151">🖼️ Links a carpetas de Drive por categoría</div>
+    <div style="font-size:14px;color:#374151">📰 Artículo Substack con fuentes y subtítulos</div>
+    <div style="font-size:14px;color:#374151">✍️ 3 preguntas para el Diario de esta semana</div>
+  </div>`)}
 
-  <!-- Sección principal: copys o pitches -->
-  <div style="margin-bottom:8px">
-    ${seccionTitulo}
-  </div>
+  <!-- Copys o pitches -->
+  <div style="margin-bottom:8px">${seccionTitulo}</div>
   ${seccionContenido}
 
-  <!-- Separador -->
-  <div style="border-top:2px solid #e5e7eb;margin:32px 0;padding-top:8px">
+  <!-- Substack -->
+  <div style="border-top:2px solid #e5e7eb;margin:32px 0 24px;padding-top:8px">
     <div style="font-size:11px;color:#d1d5db;text-align:center;text-transform:uppercase;letter-spacing:0.1em">Happimess · Substack</div>
   </div>
-
-  <!-- Substack -->
   ${substackHtml}
+
+  <!-- Preguntas -->
+  <div style="border-top:2px solid #e5e7eb;margin:32px 0 24px;padding-top:8px">
+    <div style="font-size:11px;color:#d1d5db;text-align:center;text-transform:uppercase;letter-spacing:0.1em">Diario · semana que viene</div>
+  </div>
+  ${preguntasHtml}
 
   <!-- Footer -->
   <div style="text-align:center;padding:24px 0;color:#9ca3af;font-size:13px">
@@ -526,24 +667,22 @@ const gmailBody = `<!DOCTYPE html>
 </body>
 </html>`;
 
-try {
-  const accessToken = await getGmailAccessToken();
-  const subject = hayMaterial
-    ? `📅 Semana ${today} — 3 posteos listos + artículo Substack`
-    : `💡 Semana ${today} — Ideas + artículo Substack`;
-  const result = await sendGmail(accessToken, subject, gmailBody);
-  if (result.id) {
-    console.log('✅ Gmail enviado a', GMAIL_RECIPIENT, '— ID:', result.id);
-  } else {
-    console.error('Error enviando Gmail:', JSON.stringify(result));
+  try {
+    const accessToken = await getGmailAccessToken();
+    const subject = hayMaterial
+      ? `📅 Semana ${today} — 3 posteos + Substack + preguntas`
+      : `💡 Semana ${today} — Ideas + Substack + preguntas`;
+    const result = await sendGmail(accessToken, subject, gmailBody);
+    if (result.id) {
+      console.log('✅ Gmail enviado a', GMAIL_RECIPIENT, '— ID:', result.id);
+    } else {
+      console.error('❌ Error enviando Gmail:', JSON.stringify(result));
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error('❌ Error Gmail:', e.message);
     process.exit(1);
   }
-} catch (e) {
-  console.error('Error con Gmail:', e.message);
-  process.exit(1);
-}
 
-console.log('🎉 Agente dominical completado');
-}
-
-main().catch(e => { console.error('Error fatal:', e.message); process.exit(1); });
+  console.log('🎉 Agente dominical v2 completado');
+})();
