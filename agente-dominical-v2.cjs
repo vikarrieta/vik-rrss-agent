@@ -156,7 +156,39 @@ function extractText(response) {
 
 function parseJSON(text) {
   const m = text.match(/\{[\s\S]*\}/);
-  return m ? JSON.parse(m[0]) : null;
+  if (!m) return null;
+  const raw = m[0];
+
+  // Intento 1: parse directo
+  try { return JSON.parse(raw); } catch (_) {}
+
+  // Intento 2: reparar carácter por carácter.
+  // Los copys de Claude suelen tener saltos de línea y tabs literales
+  // dentro de los strings, que JSON.parse rechaza.
+  try {
+    let out = '';
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      if (esc)          { out += c; esc = false; continue; }
+      if (c === '\\' && inStr) { out += c; esc = true;  continue; }
+      if (c === '"')    { inStr = !inStr; out += c; continue; }
+      if (inStr) {
+        if      (c === '\n') { out += '\\n'; continue; }
+        else if (c === '\r') { out += '\\r'; continue; }
+        else if (c === '\t') { out += '\\t'; continue; }
+        // Quitar otros caracteres de control que rompen JSON
+        else if (c.charCodeAt(0) < 0x20) continue;
+      }
+      out += c;
+    }
+    return JSON.parse(out);
+  } catch (e) {
+    console.error('parseJSON: no se pudo parsear. Snippet pos 490-520:', raw.slice(490, 520));
+    console.error('parseJSON error:', e.message);
+    return null;
+  }
 }
 
 // ── Airtable REST directo (sin MCP) ────────────────────────────────────────
@@ -321,7 +353,9 @@ ${categoriasTexto}
 TAREA: Elegí las 3 anécdotas más fuertes (priorizando categorías con más "hambre" o sin posteos recientes).
 Para cada una, generá el copy completo listo para publicar.
 
-Respondé SOLO con JSON válido, sin markdown:
+Respondé SOLO con JSON válido, sin markdown.
+IMPORTANTE para el JSON: en el campo "copy" y cualquier string largo, NO uses saltos de línea literales — representá los párrafos separados por \\n (barra barra n). No uses comillas dobles dentro de los strings; si necesitás citar algo, usá comillas simples.
+
 {
   "posteos": [
     {
@@ -332,7 +366,7 @@ Respondé SOLO con JSON válido, sin markdown:
       "formato": "A | B | C | D",
       "dia_sugerido": "lunes | martes | miércoles | jueves | viernes",
       "hora_sugerida": "HH:MM",
-      "copy": "texto completo del posteo",
+      "copy": "párrafo uno\\npárrafo dos\\npárrafo tres",
       "slides": ["slide 1", "slide 2"],
       "pregunta_cierre": "...",
       "carpeta_drive": "Criterio Propio | Detrás de Escena | Lifestyle Creativo | Fan de lo que hacemos",
