@@ -10,22 +10,12 @@ on:
 jobs:
   import:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Instalar dependencias
-        run: npm install fast-xml-parser
-
       - name: Correr importación
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
-        run: node import-blog-archivo.cjs
+        run: python3 import-blog-archivo.py
