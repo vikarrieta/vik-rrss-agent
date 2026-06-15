@@ -30,7 +30,7 @@ const F = {
 };
 
 // Directorio con los XMLs — ajustar si se corre localmente desde otro path
-const XML_DIR = path.join(__dirname);
+const XML_DIR = path.join(__dirname, 'xml');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
