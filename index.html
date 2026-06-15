@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Secretaria">
+  <meta name="theme-color" content="#F7F4F0">
+  <link rel="manifest" href="manifest.json">
+  <title>Secretaria</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #F7F4F0;
+      --card:      #FFFFFF;
+      --text:      #1E1E1E;
+      --muted:     #8A8580;
+      --border:    #E4DFD9;
+      --accent:    #B8704E;
+      --accent-lt: #F2E8E2;
+      --success:   #5A8A6A;
+      --error:     #B84E4E;
+      --radius:    14px;
+      --shadow:    0 2px 16px rgba(0,0,0,0.07);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 24px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    header {
+      padding: 12px 0 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    header span.logo {
+      font-size: 22px;
+    }
+    header .day {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Tipo chip */
+    .tipo-row {
+      display: flex;
+      gap: 8px;
+      padding: 14px 16px 0;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 11px;
+      border-radius: 100px;
+      background: var(--bg);
+      color: var(--muted);
+      border: 1.5px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .chip.active {
+      background: var(--accent-lt);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    /* Textarea */
+    textarea {
+      width: 100%;
+      border: none;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      font-size: 16px;
+      line-height: 1.55;
+      color: var(--text);
+      padding: 14px 16px;
+      background: transparent;
+      min-height: 150px;
+    }
+    textarea::placeholder { color: var(--muted); }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0 16px;
+    }
+
+    /* Imagen */
+    .img-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .img-toggle input[type=file] { display: none; }
+    .img-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .img-toggle-label svg { flex-shrink: 0; }
+
+    /* Preview */
+    #img-section { display: none; }
+    #img-section.visible { display: block; }
+
+    .img-preview-wrap {
+      padding: 0 16px 12px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    #img-preview {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+    }
+    .img-remove {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      color: var(--muted);
+      line-height: 1;
+      padding: 2px;
+      margin-top: -2px;
+    }
+
+    #descripcion-wrap { padding: 0 16px 14px; }
+    #descripcion {
+      width: 100%;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 13px;
+      font-family: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      resize: none;
+    }
+    #descripcion::placeholder { color: var(--muted); }
+    #descripcion:focus { border-color: var(--accent); }
+
+    /* Botón */
+    button.submit {
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 17px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: var(--shadow);
+    }
+    button.submit:active { opacity: 0.85; transform: scale(0.985); }
+    button.submit:disabled { opacity: 0.5; cursor: default; transform: none; }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--text);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      z-index: 100;
+      pointer-events: none;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.success { background: var(--success); }
+    #toast.error   { background: var(--error); }
+
+    /* Historial count */
+    .sent-count {
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      padding-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span class="logo">✍️</span>
+    <h1>Secretaria</h1>
+    <span class="day" id="fecha-hoy"></span>
+  </header>
+
+  <div class="card">
+    <div class="tipo-row">
+      <span class="chip active" data-tipo="texto">💬 texto</span>
+      <span class="chip" data-tipo="link">🔗 link</span>
+      <span class="chip" data-tipo="imagen">📸 imagen</span>
+    </div>
+
+    <textarea id="contenido" placeholder="¿Qué querés guardar?" rows="5" autocomplete="off" autocorrect="on" spellcheck="true"></textarea>
+
+    <div class="divider"></div>
+
+    <div id="img-section">
+      <div class="img-preview-wrap">
+        <img id="img-preview" src="" alt="preview">
+        <div style="flex:1">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:6px" id="img-nombre"></div>
+          <button class="img-remove" id="img-remove" title="Quitar imagen">✕</button>
+        </div>
+      </div>
+      <div id="descripcion-wrap">
+        <textarea id="descripcion" rows="2" placeholder="¿Qué es esta imagen? (contexto para el agente)"></textarea>
+      </div>
+      <div class="divider"></div>
+    </div>
+
+    <label class="img-toggle" for="img-input">
+      <input type="file" id="img-input" accept="image/*">
+      <span class="img-toggle-label">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+        Adjuntar imagen
+      </span>
+    </label>
+  </div>
+
+  <button class="submit" id="btn-enviar">Guardar idea</button>
+  <div class="sent-count" id="sent-count"></div>
+
+  <div id="toast"></div>
+
+  <script>
+    // ── Configuración ──────────────────────────────────────────────
+    // Reemplazá esta URL con la de tu webhook de Make.com
+    const WEBHOOK_URL = 'TU_WEBHOOK_URL_DE_MAKE';
+
+    // ── Estado ─────────────────────────────────────────────────────
+    let tipoActivo = 'texto';
+    let imagenBase64 = null;
+    let imagenNombre = null;
+
+    // ── Fecha ──────────────────────────────────────────────────────
+    const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const hoy = new Date();
+    document.getElementById('fecha-hoy').textContent =
+      `${dias[hoy.getDay()]} ${hoy.getDate()} ${meses[hoy.getMonth()]}`;
+
+    // ── Chips de tipo ──────────────────────────────────────────────
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        tipoActivo = chip.dataset.tipo;
+        if (tipoActivo === 'imagen') {
+          document.getElementById('img-input').click();
+        }
+      });
+    });
+
+    // Auto-detectar link cuando el usuario pega una URL
+    document.getElementById('contenido').addEventListener('input', function() {
+      const val = this.value.trim();
+      if (val.startsWith('http://') || val.startsWith('https://')) {
+        setTipo('link');
+      }
+    });
+
+    function setTipo(tipo) {
+      tipoActivo = tipo;
+      document.querySelectorAll('.chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.tipo === tipo);
+      });
+    }
+
+    // ── Imagen ─────────────────────────────────────────────────────
+    document.getElementById('img-input').addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      imagenNombre = file.name;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        imagenBase64 = e.target.result;
+        document.getElementById('img-preview').src = imagenBase64;
+        document.getElementById('img-nombre').textContent = file.name;
+        document.getElementById('img-section').classList.add('visible');
+        setTipo('imagen');
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('img-remove').addEventListener('click', () => {
+      imagenBase64 = null;
+      imagenNombre = null;
+      document.getElementById('img-input').value = '';
+      document.getElementById('img-section').classList.remove('visible');
+      document.getElementById('img-preview').src = '';
+      document.getElementById('descripcion').value = '';
+      setTipo('texto');
+    });
+
+    // ── Envío ──────────────────────────────────────────────────────
+    document.getElementById('btn-enviar').addEventListener('click', enviar);
+
+    async function enviar() {
+      const contenido = document.getElementById('contenido').value.trim();
+      if (!contenido && !imagenBase64) {
+        toast('Escribí algo primero', 'error');
+        return;
+      }
+
+      if (WEBHOOK_URL === 'TU_WEBHOOK_URL_DE_MAKE') {
+        toast('Falta configurar el webhook de Make.com', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btn-enviar');
+      btn.disabled = true;
+      btn.textContent = 'Guardando...';
+
+      const payload = {
+        tipo:                tipoActivo,
+        contenido:           contenido,
+        descripcion_adjunto: document.getElementById('descripcion').value.trim(),
+        imagen_base64:       imagenBase64 || null,
+        imagen_nombre:       imagenNombre || null,
+        timestamp:           new Date().toISOString(),
+      };
+
+      try {
+        const resp = await fetch(WEBHOOK_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        // Limpiar formulario
+        document.getElementById('contenido').value = '';
+        document.getElementById('img-remove').click();
+        setTipo('texto');
+
+        // Contador local
+        const count = (parseInt(localStorage.getItem('ideas_enviadas') || '0')) + 1;
+        localStorage.setItem('ideas_enviadas', count);
+        actualizarContador(count);
+
+        toast('✓ Guardado', 'success');
+      } catch (err) {
+        console.error(err);
+        toast('Error al guardar — intentá de nuevo', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Guardar idea';
+      }
+    }
+
+    // ── Toast ──────────────────────────────────────────────────────
+    let toastTimer;
+    function toast(msg, tipo = '') {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = `show ${tipo}`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = ''; }, 2400);
+    }
+
+    // ── Contador ───────────────────────────────────────────────────
+    function actualizarContador(n) {
+      const el = document.getElementById('sent-count');
+      el.textContent = n === 1 ? '1 idea guardada esta semana' : `${n} ideas guardadas esta semana`;
+    }
+    const guardadas = parseInt(localStorage.getItem('ideas_enviadas') || '0');
+    if (guardadas > 0) actualizarContador(guardadas);
+  </script>
+</body>
+</html>
