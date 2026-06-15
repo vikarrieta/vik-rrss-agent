@@ -1,0 +1,32 @@
+# .github/workflows/import-blog-archivo.yml
+# Workflow de ejecución ÚNICA (manual) para importar el blog archivo a Airtable.
+# Después de correrlo exitosamente, puede deshabilitarse o moverse a _archive.
+
+name: Importar Blog Archivo → Airtable
+
+on:
+  workflow_dispatch:  # Solo se ejecuta cuando vos lo activás manualmente
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .   # El script y los XMLs están en la raíz del repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias
+        run: npm install fast-xml-parser
+
+      - name: Correr importación
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+        run: node import-blog-archivo.cjs
