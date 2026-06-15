@@ -5,14 +5,13 @@
 name: Importar Blog Archivo → Airtable
 
 on:
-  workflow_dispatch:  # Solo se ejecuta cuando vos lo activás manualmente
+  workflow_dispatch:
 
 jobs:
   import:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .   # El script y los XMLs están en la raíz del repo
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repo
@@ -30,5 +29,3 @@ jobs:
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
         run: node import-blog-archivo.cjs
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
