@@ -25,7 +25,9 @@ UNIVERSO TEMÁTICO:
 - Diseño como forma de pensar y de vivir
 - Organización con propósito (no productividad vacía)
 - Lifestyle consciente
-- Creatividad aplicada al día a día
+- Imaginación radical como acto político
+- Curiosidad como motor de crecimiento
+- La comunidad como espacio de transformación
 
 CATEGORÍAS SUBSTACK HAPPIMESS:
 - Activar: motivación y acción concreta
@@ -160,33 +162,73 @@ function extractText(response) {
     .join('\n');
 }
 
+
 function parseJSON(text) {
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
   const raw = m[0];
   try { return JSON.parse(raw); } catch (_) {}
   try {
-    let out = '';
-    let inStr = false;
-    let esc = false;
-    for (let i = 0; i < raw.length; i++) {
-      const c = raw[i];
-      if (esc)          { out += c; esc = false; continue; }
-      if (c === '\\' && inStr) { out += c; esc = true;  continue; }
-      if (c === '"')    { inStr = !inStr; out += c; continue; }
-      if (inStr) {
-        if      (c === '\n') { out += '\\n'; continue; }
-        else if (c === '\r') { out += '\\r'; continue; }
-        else if (c === '\t') { out += '\\t'; continue; }
-        else if (c.charCodeAt(0) < 0x20) continue;
-      }
-      out += c;
-    }
-    return JSON.parse(out);
+    return JSON.parse(repairJSON(raw));
   } catch (e) {
     console.error('parseJSON: no se pudo parsear.', e.message);
     return null;
   }
+}
+ 
+// Repara JSON generado por un LLM: normaliza control chars dentro de strings
+// y, sobre todo, escapa comillas dobles "internas" que el modelo dejó sin
+// escapar (ej: una cita textual dentro de un campo markdown), que es la causa
+// más común de "Expected ',' or '}' after property value".
+function repairJSON(raw) {
+  let out = '';
+  let inStr = false;
+  let esc = false;
+ 
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+ 
+    if (esc) { out += c; esc = false; continue; }
+    if (c === '\\' && inStr) { out += c; esc = true; continue; }
+ 
+    if (c === '"') {
+      if (!inStr) {
+        // Apertura de string: siempre válida.
+        inStr = true;
+        out += c;
+        continue;
+      }
+      // Estamos dentro de un string y encontramos una comilla.
+      // Miramos qué sigue (saltando espacios) para decidir si es un
+      // cierre legítimo o una comilla interna sin escapar.
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j++;
+      const next = raw[j];
+      const esCierreLegitimo =
+        next === undefined ||
+        next === ',' || next === '}' || next === ']' || next === ':';
+ 
+      if (esCierreLegitimo) {
+        inStr = false;
+        out += c;
+      } else {
+        // Comilla interna: la escapamos y seguimos dentro del string.
+        out += '\\"';
+      }
+      continue;
+    }
+ 
+    if (inStr) {
+      if      (c === '\n') { out += '\\n'; continue; }
+      else if (c === '\r') { out += '\\r'; continue; }
+      else if (c === '\t') { out += '\\t'; continue; }
+      else if (c.charCodeAt(0) < 0x20) continue;
+    }
+ 
+    out += c;
+  }
+ 
+  return out;
 }
 
 // ── Airtable REST directo (sin MCP) ────────────────────────────────────────
@@ -431,6 +473,10 @@ TAREA 2 — Posteo de Instagram derivado de la nota:
 - Caption de 3-5 líneas que resume la idea central de la nota e invita a leerla completa
 - 5-8 hashtags relevantes (mezclando lifestyle/diseño/Happimess)
 
+IMPORTANTE — formato JSON:
+- Respondé SOLO con JSON válido, sin bloques markdown (sin \`\`\`).
+- Dentro de CUALQUIER valor de string del JSON (especialmente "markdown", "caption", "fuentes"), NUNCA uses comillas dobles rectas (") para citar algo. Si necesitás citar texto literal, usá comillas simples ('texto') o comillas tipográficas (“texto”). Una comilla doble recta sin escapar rompe el JSON.
+ 
 Respondé SOLO con JSON válido, sin bloques markdown:
 {
   "tema_elegido": "...",
